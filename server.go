@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -11,21 +12,21 @@ import (
 )
 
 type serverCtx struct {
-	mutex *sync.RWMutex
+	mutex sync.RWMutex
 	users map[uuid.UUID]net.Conn
 }
 
-func initCtx() *serverCtx {
-	ctx := new(serverCtx)
-	ctx.mutex = new(sync.RWMutex)
-	ctx.users = make(map[uuid.UUID]net.Conn)
+func newServerCtx() *serverCtx {
+	ctx := &serverCtx{
+		users: make(map[uuid.UUID]net.Conn),
+	}
 	return ctx
 }
 
 const (
 	PROTOCOL = "tcp"
-	ADDRESS  = "127.0.0.1"
-	PORT     = "5555"
+	ADDRESS  = "127.0.0.1:5555"
+	PASSWORD = "minecraft\n"
 )
 
 func writeMsg(conn net.Conn, msg string) error {
@@ -55,7 +56,7 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-func (ctx serverCtx) userConnect(uuid uuid.UUID, conn net.Conn) {
+func (ctx *serverCtx) userConnect(uuid uuid.UUID, conn net.Conn) {
 	ctx.mutex.Lock()
 	defer ctx.mutex.Unlock()
 	ctx.users[uuid] = conn
@@ -64,7 +65,7 @@ func (ctx serverCtx) userConnect(uuid uuid.UUID, conn net.Conn) {
 	}
 }
 
-func (ctx serverCtx) userDisconnect(uuid uuid.UUID) {
+func (ctx *serverCtx) userDisconnect(uuid uuid.UUID) {
 	ctx.mutex.Lock()
 	defer ctx.mutex.Unlock()
 	delete(ctx.users, uuid)
@@ -73,7 +74,7 @@ func (ctx serverCtx) userDisconnect(uuid uuid.UUID) {
 	}
 }
 
-func (ctx serverCtx) broadcastMessage(uuid uuid.UUID, msg string) {
+func (ctx *serverCtx) broadcastMessage(uuid uuid.UUID, msg string) {
 	ctx.mutex.RLock()
 	defer ctx.mutex.RUnlock()
 	for _, userConn := range ctx.users {
@@ -83,6 +84,14 @@ func (ctx serverCtx) broadcastMessage(uuid uuid.UUID, msg string) {
 
 func handleRequest(ctx *serverCtx, uuid uuid.UUID, conn net.Conn) {
 	defer conn.Close()
+
+	writeMsg(conn, "enter password:\n")
+	password, err := readMsg(conn)
+	if password != PASSWORD || err != nil {
+		return
+	}
+
+	writeMsg(conn, fmt.Sprintf("welcome %s\n", uuid.String()))
 	defer ctx.userDisconnect(uuid)
 	for {
 		msg, err := readMsg(conn)
@@ -97,13 +106,18 @@ func handleRequest(ctx *serverCtx, uuid uuid.UUID, conn net.Conn) {
 }
 
 func main() {
-	address := fmt.Sprintf("%s:%s", ADDRESS, PORT)
+	cert, err := tls.LoadX509KeyPair("certificates/certificate.crt", "certificates/private.key")
+	fatal(err)
 
-	listener, err := net.Listen(PROTOCOL, address)
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	listener, err := tls.Listen(PROTOCOL, ADDRESS, tlsConfig)
 	fatal(err)
 	defer listener.Close()
 
-	ctx := initCtx()
+	ctx := newServerCtx()
 
 	for {
 		conn, err := listener.Accept()

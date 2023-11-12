@@ -4,4 +4,4 @@ I decided to learn more about golang and tcp. So I wrote the application for a t
 Later I might expand this application by adding:
 - a dedicated cli client
 - limit message size and cap concurrent user count
-- authentication and/or tls handshake
+-- - authentication and/or tls handshake--

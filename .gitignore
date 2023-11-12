@@ -20,3 +20,11 @@ bin/**/*
 
 # Go workspace file
 go.work
+
+# build artifacts
+bin
+
+# tls
+*.crt
+*.csr
+*.key
